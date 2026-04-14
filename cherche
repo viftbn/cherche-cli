@@ -1,0 +1,216 @@
+#!/usr/bin/env bash
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+# ==============================
+# CHERCHE - V1 (base de travail)
+# ==============================
+
+usage() {
+  cat <<'EOF'
+Usage:
+  cherche <fichier|dossier> [options] --dans <chemin> [action]
+
+Options V1 :
+  --nom <nom_exact>
+  --contient <texte>
+  --extension <ext>
+  --dans <chemin>        (obligatoire)
+
+Actions :
+  --afficher             (défaut)
+  --compter
+EOF
+}
+
+die() {
+  printf 'Erreur: %s\n' "$1" >&2
+  exit 1
+}
+
+# ------------------------------
+# Variables par défaut
+# ------------------------------
+TARGET_TYPE=""
+SEARCH_PATH=""
+NAME_FILTER=""
+CONTAINS_FILTER=""
+EXT_FILTER=""
+ACTION="afficher"
+RESULT_COUNT=0
+
+# ------------------------------
+# Validation minimale
+# ------------------------------
+[[ $# -ge 1 ]] || {
+  usage
+  exit 1
+}
+
+TARGET_TYPE="$1"
+shift
+
+case "$TARGET_TYPE" in
+  fichier|dossier)
+    ;;
+  *)
+    die "le premier argument doit être 'fichier' ou 'dossier'"
+    ;;
+esac
+
+# ------------------------------
+# Parseur d'arguments V1
+# ------------------------------
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dans)
+      [[ $# -ge 2 ]] || die "--dans attend un chemin"
+      SEARCH_PATH="$2"
+      shift 2
+      ;;
+
+    --nom)
+      [[ $# -ge 2 ]] || die "--nom attend une valeur"
+      NAME_FILTER="$2"
+      shift 2
+      ;;
+
+    --contient)
+      [[ $# -ge 2 ]] || die "--contient attend une valeur"
+      CONTAINS_FILTER="$2"
+      shift 2
+      ;;
+
+    --extension)
+      [[ $# -ge 2 ]] || die "--extension attend une valeur"
+      EXT_FILTER="$2"
+      shift 2
+      ;;
+
+    --afficher)
+      ACTION="afficher"
+      shift
+      ;;
+
+    --compter)
+      ACTION="compter"
+      shift
+      ;;
+
+    --help|-h)
+      usage
+      exit 0
+      ;;
+
+    *)
+      die "option inconnue : $1"
+      ;;
+  esac
+done
+
+[[ -n "$SEARCH_PATH" ]] || die "--dans est obligatoire"
+[[ -d "$SEARCH_PATH" ]] || die "le chemin '$SEARCH_PATH' n'existe pas ou n'est pas un dossier"
+[[ -n "$EXT_FILTER" && "$TARGET_TYPE" == "dossier" ]] && \
+  die "--extension est utilisable uniquement avec 'fichier'"
+
+
+# ------------------------------
+# Moteur de parcours récursif
+# ------------------------------
+
+matches_type() {
+  local path="$1"
+
+  case "$TARGET_TYPE" in
+    fichier)
+      [[ -f "$path" ]]
+      ;;
+    dossier)
+      [[ -d "$path" ]]
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+matches_name() {
+  local path="$1"
+  local base_name=""
+
+  [[ -z "$NAME_FILTER" ]] && return 0
+
+  base_name="$(basename "$path")"
+
+  [[ "$base_name" == "$NAME_FILTER" ]]
+}
+
+matches_extension() {
+  local path="$1"
+  local base_name=""
+
+  [[ -z "$EXT_FILTER" ]] && return 0
+
+  base_name="$(basename "$path")"
+
+  [[ "$base_name" == *."$EXT_FILTER" ]]
+}
+
+matches_contains() {
+  local path="$1"
+  local base_name=""
+
+  [[ -z "$CONTAINS_FILTER" ]] && return 0
+
+  base_name="$(basename "$path")"
+
+  [[ "$base_name" == *"$CONTAINS_FILTER"* ]]
+}
+
+# fonction dédiée aux filtres
+
+matches_filters() {
+  local path="$1"
+
+  matches_type "$path" &&
+  matches_name "$path" &&
+  matches_extension "$path" &&
+  matches_contains "$path"
+}
+
+# walk = le moteur de parcours récursif
+
+walk() {
+  local current_path="$1"
+  local root_path="$2"
+  local entry=""
+
+
+  if [[ "$current_path" != "$root_path" ]] && matches_filters "$current_path"; then
+    ((RESULT_COUNT+=1))
+
+    if [[ "$ACTION" == "afficher" ]]; then
+      printf '%s\n' "$current_path"
+    fi
+  fi
+
+  [[ -d "$current_path" ]] || return 0
+
+  for entry in "$current_path"/*; do
+    [[ -e "$entry" ]] || continue
+    walk "$entry" "$root_path"
+  done
+}
+
+
+walk "$SEARCH_PATH" "$SEARCH_PATH"
+
+#affichage final du total
+
+if [[ "$ACTION" == "compter" ]]; then
+  printf '%s\n' "$RESULT_COUNT"
+elif [[ "$RESULT_COUNT" -eq 0 ]]; then
+  printf 'Aucun résultat trouvé\n'
+fi
