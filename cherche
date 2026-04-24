@@ -5,23 +5,36 @@ set -o nounset
 set -o pipefail
 
 # ==============================
-# CHERCHE - V1 (base de travail)
+# CHERCHE - v2.0
 # ==============================
 
 usage() {
   cat <<'EOF'
+
+-----------------------------------------------
+CHERCHE — recherche simple de fichiers et dossiers
+Version 2.0 — avril 2026
+-----------------------------------------------
+
 Usage:
   cherche <fichier|dossier> [options] --dans <chemin> [action]
 
-Options V1 :
+Options :
+  --dans <chemin>        (obligatoire)
   --nom <nom_exact>
   --contient <texte>
   --extension <ext>
-  --dans <chemin>        (obligatoire)
+  --vide
+  --non-recursif
 
 Actions :
-  --afficher             (défaut)
+  --afficher             (par défaut)
   --compter
+  --supprimer
+
+Auteur :
+  viftbn
+
 EOF
 }
 
@@ -40,13 +53,17 @@ CONTAINS_FILTER=""
 EXT_FILTER=""
 ACTION="afficher"
 RESULT_COUNT=0
+MATCH_COUNT=0
+NON_RECURSIF=0
+EMPTY_FILTER=0
+RESULTS_TO_DELETE=()
 
 # ------------------------------
 # Validation minimale
 # ------------------------------
 [[ $# -ge 1 ]] || {
   usage
-  exit 1
+  exit 0
 }
 
 TARGET_TYPE="$1"
@@ -88,6 +105,15 @@ while [[ $# -gt 0 ]]; do
       EXT_FILTER="$2"
       shift 2
       ;;
+    --non-recursif)
+      NON_RECURSIF=1
+      shift
+      ;;
+
+    --vide)
+      EMPTY_FILTER=1
+      shift
+      ;;
 
     --afficher)
       ACTION="afficher"
@@ -98,10 +124,9 @@ while [[ $# -gt 0 ]]; do
       ACTION="compter"
       shift
       ;;
-
-    --help|-h)
-      usage
-      exit 0
+    --supprimer)
+      ACTION="supprimer"
+      shift
       ;;
 
     *)
@@ -169,6 +194,33 @@ matches_contains() {
   [[ "$base_name" == *"$CONTAINS_FILTER"* ]]
 }
 
+matches_empty() {
+ local path="$1"
+ local entry=""
+
+ [[ "$EMPTY_FILTER" -eq 0 ]] && return 0
+
+ case "$TARGET_TYPE" in
+  fichier)
+    [[ -f "$path" && ! -s "$path" ]]
+    ;;
+
+  dossier)
+    [[ -d "$path" ]] || return 1
+
+    for entry in "$path"/* "$path"/.[!.]* "$path"/..?*; do
+    [[ -e "$entry" ]] && return 1
+    done
+
+    return 0
+    ;;
+
+  *)
+    return 1
+    ;;
+ esac
+}
+
 # fonction dédiée aux filtres
 
 matches_filters() {
@@ -177,40 +229,122 @@ matches_filters() {
   matches_type "$path" &&
   matches_name "$path" &&
   matches_extension "$path" &&
-  matches_contains "$path"
+  matches_contains "$path" &&
+  matches_empty "$path"
 }
 
+# filtrage des données avant suppression
+
+filter_delete_targets() {
+ local path=""
+ local other=""
+ local keep=1
+ local filtered_results=()
+
+ for path in "${RESULTS_TO_DELETE[@]}"; do
+  keep=1
+
+  for other in "${RESULTS_TO_DELETE[@]}"; do
+   [[ "$path" == "$other" ]] && continue
+
+   case "$path" in
+    "$other"/*)
+     keep=0
+     break
+     ;;
+   esac
+  done
+
+  [[ "$keep" -eq 1 ]] && filtered_results+=("$path")
+ done
+
+ RESULTS_TO_DELETE=("${filtered_results[@]}")
+}
+
+# ----------------------------------------
 # walk = le moteur de parcours récursif
+# ---------------------------------------
 
 walk() {
-  local current_path="$1"
-  local root_path="$2"
-  local entry=""
+ local current_path="$1"
+ local root_path="$2"
+ local current_depth="$3"
+ local entry=""
 
+ if [[ "$current_path" != "$root_path" ]] && matches_filters "$current_path"; then
+ ((MATCH_COUNT+=1))
 
-  if [[ "$current_path" != "$root_path" ]] && matches_filters "$current_path"; then
-    ((RESULT_COUNT+=1))
+ case "$ACTION" in
+   afficher)
+     printf '%s\n' "$current_path"
+     ;;
+   compter)
+     ((RESULT_COUNT+=1))
+     ;;
+   supprimer)
+     RESULTS_TO_DELETE+=("$current_path")
+     ;;
+     *)
+     die "action inconnue : $ACTION"
+     ;;
+ esac
+ fi
 
-    if [[ "$ACTION" == "afficher" ]]; then
-      printf '%s\n' "$current_path"
-    fi
-  fi
+ [[ -d "$current_path" ]] || return 0
 
-  [[ -d "$current_path" ]] || return 0
+ if [[ "$NON_RECURSIF" -eq 1 && "$current_depth" -ge 1 ]]; then
+ return 0
+ fi
 
-  for entry in "$current_path"/*; do
-    [[ -e "$entry" ]] || continue
-    walk "$entry" "$root_path"
-  done
+ for entry in "$current_path"/*; do
+ [[ -e "$entry" ]] || continue
+ walk "$entry" "$root_path" $((current_depth + 1))
+ done
 }
 
-
-walk "$SEARCH_PATH" "$SEARCH_PATH"
+walk "$SEARCH_PATH" "$SEARCH_PATH" 0
 
 #affichage final du total
 
 if [[ "$ACTION" == "compter" ]]; then
-  printf '%s\n' "$RESULT_COUNT"
-elif [[ "$RESULT_COUNT" -eq 0 ]]; then
+ printf '%s\n' "$RESULT_COUNT"
+
+elif [[ "$ACTION" == "supprimer" ]]; then
+ if [[ "${#RESULTS_TO_DELETE[@]}" -eq 0 ]]; then
   printf 'Aucun résultat trouvé\n'
+  exit 0
+ fi
+
+ filter_delete_targets
+
+ printf 'Éléments à supprimer :\n'
+ for path in "${RESULTS_TO_DELETE[@]}"; do
+  printf '%s\n' "$path"
+ done
+
+ printf 'Attention : les dossiers seront supprimés récursivement avec leur contenu.\n'
+ printf 'Continuer ? (O/n): '
+
+ read -r confirmation
+
+ case "$confirmation" in
+  ""|O|o)
+   ;;
+  N|n)
+   printf 'Suppression annulée\n'
+   exit 0
+   ;;
+  *)
+   printf 'Réponse invalide. Suppression annulée\n'
+   exit 1
+   ;;
+ esac
+
+ for path in "${RESULTS_TO_DELETE[@]}"; do
+  rm -rf -- "$path"
+  printf 'Supprimé : %s\n' "$path"
+ done
+
+elif [[ "$MATCH_COUNT" -eq 0 ]]; then
+ printf 'Aucun résultat trouvé\n'
 fi
