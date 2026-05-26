@@ -9,31 +9,67 @@ set -o pipefail
 # ==============================
 
 usage() {
-  cat <<'EOF'
-
------------------------------------------------
-CHERCHE — recherche simple de fichiers et dossiers
-Version 2.0 — avril 2026
------------------------------------------------
+ cat <<'EOF'
 
 Usage:
   cherche <fichier|dossier> [options] --dans <chemin> [action]
 
-Options :
-  --dans <chemin>        (obligatoire)
-  --nom <nom_exact>
-  --contient <texte>
-  --extension <ext>
-  --vide
-  --non-recursif
+Description:
+  CHERCHE est une commande Bash de recherche de fichiers et dossiers.
+  La logique est volontairement plus humaine :
 
-Actions :
-  --afficher             (par défaut)
-  --compter
-  --supprimer
+    chercher Quoi? -> Où? -> Comment? (selon quels critères) -> pour faire quoi?
 
-Auteur :
-  viftbn
+Types:
+  fichier
+  dossier
+
+Portée:
+  --dans <chemin>        Chemin de départ de la recherche (obligatoire)
+  --non-recursif         Limite la recherche au premier niveau
+
+Filtres:
+  --nom <nom_exact>      Filtre par nom exact
+  --contient <texte>     Filtre les résultats dont le nom contient le texte indiqué
+  --extension <ext>      Filtre par extension (uniquement avec fichier)
+  --vide                 Recherche les fichiers ou dossiers vides
+  --user <utilisateur>   Filtre par propriétaire
+  --perm <mode>          Filtre par permissions exactes en octal, ex: 644, 755, 1777
+
+Actions:
+  --afficher             Affiche les résultats (action par défaut)
+  --compter              Compte les résultats
+  --supprimer            Supprime les résultats après confirmation
+
+Chemins:
+  .                      Répertoire courant
+  ..                     Répertoire parent
+  ~                      Répertoire personnel de l'utilisateur courant
+
+Répertoires spéciaux:
+  Lors d'une recherche large, les répertoires suivants sont exclus par défaut :
+
+    /proc /sys /dev /run
+
+  Pour rechercher spécifiquement dans l'un d'eux, indique explicitement ce chemin
+  avec --dans.
+
+Liens symboliques:
+  Les liens symboliques peuvent apparaître dans les résultats selon leur cible.
+  Par défaut, CHERCHE ne descend pas dans les liens symboliques.
+
+Exemples:
+  cherche fichier --nom hosts --dans /etc
+  cherche fichier --contient log --dans /var/log
+  cherche fichier --extension conf --dans /etc
+  cherche fichier --dans /etc --non-recursif
+  cherche fichier --dans /tmp --vide
+  cherche dossier --dans /tmp --vide
+  cherche fichier --dans /etc --user root
+  cherche fichier --dans /tmp --perm 644
+  cherche fichier --dans /tmp --user virgil --perm 644
+  cherche fichier --extension log --dans /var/log --compter
+  cherche dossier --dans /tmp --contient cache --supprimer
 
 EOF
 }
@@ -51,6 +87,8 @@ SEARCH_PATH=""
 NAME_FILTER=""
 CONTAINS_FILTER=""
 EXT_FILTER=""
+USER_FILTER=""
+PERM_FILTER=""
 ACTION="afficher"
 RESULT_COUNT=0
 MATCH_COUNT=0
@@ -105,6 +143,20 @@ while [[ $# -gt 0 ]]; do
       EXT_FILTER="$2"
       shift 2
       ;;
+
+    --user)
+      [[ $# -ge 2 ]] || die "--user attend un utilisateur"
+      USER_FILTER="$2"
+      shift 2
+      ;;
+
+    --perm)
+      [[ $# -ge 2 ]] || die "--perm attend un mode octal"
+      PERM_FILTER="$2"
+      shift 2
+      ;;
+
+
     --non-recursif)
       NON_RECURSIF=1
       shift
@@ -140,6 +192,9 @@ done
 [[ -n "$EXT_FILTER" && "$TARGET_TYPE" == "dossier" ]] && \
   die "--extension est utilisable uniquement avec 'fichier'"
 
+if [[ -n "$PERM_FILTER" && ! "$PERM_FILTER" =~ ^[0-7]{3,4}$ ]]; then
+ die "--perm attend un mode octal sur 3 ou 4 chiffres, exemple : 644, 755, 1777"
+fi
 
 # ------------------------------
 # Moteur de parcours récursif
@@ -194,6 +249,28 @@ matches_contains() {
   [[ "$base_name" == *"$CONTAINS_FILTER"* ]]
 }
 
+matches_user() {
+ local path="$1"
+ local owner=""
+
+ [[ -z "$USER_FILTER" ]] && return 0
+
+ owner="$(stat -c '%U' "$path" 2>/dev/null)" || return 1
+
+ [[ "$owner" == "$USER_FILTER" ]]
+}
+
+matches_perm() {
+ local path="$1"
+ local mode=""
+
+ [[ -z "$PERM_FILTER" ]] && return 0
+
+ mode="$(stat -c '%a' "$path" 2>/dev/null)" || return 1
+
+ [[ "$mode" == "$PERM_FILTER" ]]
+}
+
 matches_empty() {
  local path="$1"
  local entry=""
@@ -230,7 +307,29 @@ matches_filters() {
   matches_name "$path" &&
   matches_extension "$path" &&
   matches_contains "$path" &&
-  matches_empty "$path"
+  matches_empty "$path" &&
+  matches_user "$path" &&
+  matches_perm "$path"
+
+
+}
+
+# fonction d'exclusion de répertoire par défaut (/proc /sys /dev /run)
+
+is_excluded_path() {
+ local path="$1"
+ local root_path="$2"
+
+ [[ "$path" == "$root_path" ]] && return 1
+
+ case "$path" in
+ /proc|/proc/*|/sys|/sys/*|/dev|/dev/*|/run|/run/*)
+  return 0
+  ;;
+ *)
+  return 1
+  ;;
+ esac
 }
 
 # filtrage des données avant suppression
@@ -291,16 +390,33 @@ walk() {
  fi
 
  [[ -d "$current_path" ]] || return 0
+ [[ -L "$current_path" ]] && return 0
 
  if [[ "$NON_RECURSIF" -eq 1 && "$current_depth" -ge 1 ]]; then
  return 0
  fi
 
- for entry in "$current_path"/*; do
+for entry in "$current_path"/*; do
  [[ -e "$entry" ]] || continue
- walk "$entry" "$root_path" $((current_depth + 1))
- done
+
+ if is_excluded_path "$entry" "$root_path"; then
+  continue
+ fi
+
+walk "$entry" "$root_path" "$((current_depth + 1))"
+
+done
 }
+
+if [[ "$SEARCH_PATH" == "/" ]]; then
+ printf 'Information : certains répertoires spéciaux font partie du périmètre demandé mais sont exclus par défaut : /proc, /sys, /dev, /run.\n' >&2
+ printf 'Pour chercher dans l’un d’eux, veuillez indiquer explicitement ce chemin avec --dans.\n' >&2
+
+
+  if [[ -t 1 && -t 2 ]]; then
+   sleep 3
+  fi
+fi
 
 walk "$SEARCH_PATH" "$SEARCH_PATH" 0
 
