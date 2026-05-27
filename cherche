@@ -11,14 +11,15 @@ set -o pipefail
 usage() {
  cat <<'EOF'
 
-Usage:
-  cherche <fichier|dossier> [options] --dans <chemin> [action]
-
 Description:
   CHERCHE est une commande Bash de recherche de fichiers et dossiers.
   La logique est volontairement plus humaine :
 
-    chercher Quoi? -> Où? -> Comment? (selon quels critères) -> pour faire quoi?
+    chercher Quoi? -> Où? -> Comment? (critères) -> pour faire quoi?
+
+Usage:
+  cherche <fichier|dossier> [options] --dans <chemin> [action]
+
 
 Types:
   fichier
@@ -70,6 +71,10 @@ Exemples:
   cherche fichier --dans /tmp --user virgil --perm 644
   cherche fichier --extension log --dans /var/log --compter
   cherche dossier --dans /tmp --contient cache --supprimer
+
+"Je vous souhaite d'en faire un bon usage et j'espère qu'elle vous plaira !"
+
+--viftbn--
 
 EOF
 }
