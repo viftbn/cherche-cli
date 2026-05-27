@@ -227,7 +227,7 @@ matches_name() {
 
   [[ -z "$NAME_FILTER" ]] && return 0
 
-  base_name="$(basename "$path")"
+  base_name="$(basename -- "$path")"
 
   [[ "$base_name" == "$NAME_FILTER" ]]
 }
@@ -238,7 +238,7 @@ matches_extension() {
 
   [[ -z "$EXT_FILTER" ]] && return 0
 
-  base_name="$(basename "$path")"
+  base_name="$(basename -- "$path")"
 
   [[ "$base_name" == *."$EXT_FILTER" ]]
 }
@@ -249,7 +249,7 @@ matches_contains() {
 
   [[ -z "$CONTAINS_FILTER" ]] && return 0
 
-  base_name="$(basename "$path")"
+  base_name="$(basename -- "$path")"
 
   [[ "$base_name" == *"$CONTAINS_FILTER"* ]]
 }
@@ -260,7 +260,7 @@ matches_user() {
 
  [[ -z "$USER_FILTER" ]] && return 0
 
- owner="$(stat -c '%U' "$path" 2>/dev/null)" || return 1
+ owner="$(stat -c '%U' -- "$path" 2>/dev/null)" || return 1
 
  [[ "$owner" == "$USER_FILTER" ]]
 }
@@ -271,7 +271,7 @@ matches_perm() {
 
  [[ -z "$PERM_FILTER" ]] && return 0
 
- mode="$(stat -c '%a' "$path" 2>/dev/null)" || return 1
+ mode="$(stat -c '%a' -- "$path" 2>/dev/null)" || return 1
 
  [[ "$mode" == "$PERM_FILTER" ]]
 }
@@ -443,7 +443,9 @@ elif [[ "$ACTION" == "supprimer" ]]; then
   printf '%s\n' "$path"
  done
 
+ if [[ "$TARGET_TYPE" == "dossier" ]]; then
  printf 'Attention : les dossiers seront supprimés récursivement avec leur contenu.\n'
+ fi
  printf 'Continuer ? (O/n): '
 
  read -r confirmation
