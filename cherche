@@ -415,7 +415,7 @@ done
 
 if [[ "$SEARCH_PATH" == "/" ]]; then
  printf 'Information : certains répertoires spéciaux font partie du périmètre demandé mais sont exclus par défaut : /proc, /sys, /dev, /run.\n' >&2
- printf 'Pour chercher dans l’un d’eux, veuillez indiquer explicitement ce chemin avec --dans.\n' >&2
+ printf 'Pour chercher dans ces répertoires, veuillez indiquer explicitement ce chemin avec --dans.\n' >&2
 
 
   if [[ -t 1 && -t 2 ]]; then
