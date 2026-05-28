@@ -446,14 +446,14 @@ elif [[ "$ACTION" == "supprimer" ]]; then
  if [[ "$TARGET_TYPE" == "dossier" ]]; then
  printf 'Attention : les dossiers seront supprimés récursivement avec leur contenu.\n'
  fi
- printf 'Continuer ? (O/n): '
+ printf 'Continuer ? (o/N): '
 
  read -r confirmation
 
  case "$confirmation" in
-  ""|O|o)
+  O|o)
    ;;
-  N|n)
+  ""|N|n)
    printf 'Suppression annulée\n'
    exit 0
    ;;
