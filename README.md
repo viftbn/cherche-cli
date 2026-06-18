@@ -79,6 +79,7 @@ Par défaut, la recherche est récursive.
 --vide
 --user <utilisateur>
 --perm <mode>
+--caches
 ```
 
 Détails :
@@ -89,6 +90,7 @@ Détails :
 - `--vide` recherche les fichiers ou dossiers vides ;
 - `--user` filtre selon le propriétaire ;
 - `--perm` filtre selon les permissions exactes en notation octale.
+- `--caches` Inclut les fichiers et dossiers cachés (noms commençant par .)
 
 L’option `--extension` est utilisable uniquement avec `fichier`.
 
