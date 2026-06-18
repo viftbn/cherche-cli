@@ -34,6 +34,7 @@ Filtres:
   --contient <texte>     Filtre les résultats dont le nom contient le texte indiqué
   --extension <ext>      Filtre par extension (uniquement avec fichier)
   --vide                 Recherche les fichiers ou dossiers vides
+  --caches               Inclut les fichiers et dossiers cachés (noms commençant par .)
   --user <utilisateur>   Filtre par propriétaire
   --perm <mode>          Filtre par permissions exactes en octal, ex: 644, 755, 1777
 
@@ -71,6 +72,7 @@ Exemples:
   cherche fichier --dans /tmp --user virgil --perm 644
   cherche fichier --extension log --dans /var/log --compter
   cherche dossier --dans /tmp --contient cache --supprimer
+  cherche fichier --dans /home/user --caches
 
 "Je vous souhaite d'en faire un bon usage et j'espère qu'elle vous plaira !"
 
@@ -99,6 +101,7 @@ RESULT_COUNT=0
 MATCH_COUNT=0
 NON_RECURSIF=0
 EMPTY_FILTER=0
+HIDDEN_FILTER=0
 RESULTS_TO_DELETE=()
 
 # ------------------------------
@@ -161,7 +164,6 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
 
-
     --non-recursif)
       NON_RECURSIF=1
       shift
@@ -169,6 +171,11 @@ while [[ $# -gt 0 ]]; do
 
     --vide)
       EMPTY_FILTER=1
+      shift
+      ;;
+
+    --caches)
+      HIDDEN_FILTER=1
       shift
       ;;
 
@@ -401,16 +408,20 @@ walk() {
  return 0
  fi
 
-for entry in "$current_path"/* "$current_path"/.[!.]* "$current_path"/..?*; do
- [[ -e "$entry" || -L "$entry" ]] || continue
+if [[ "$HIDDEN_FILTER" -eq 1 ]]; then
+  for entry in "$current_path"/* "$current_path"/.[!.]* "$current_path"/..?*; do
+    [[ -e "$entry" || -L "$entry" ]] || continue
+    is_excluded_path "$entry" "$root_path" && continue
+    walk "$entry" "$root_path" "$((current_depth + 1))"
+  done
+else
+  for entry in "$current_path"/*; do
+    [[ -e "$entry" ]] || continue
+    is_excluded_path "$entry" "$root_path" && continue
+    walk "$entry" "$root_path" "$((current_depth + 1))"
+  done
+fi
 
- if is_excluded_path "$entry" "$root_path"; then
-  continue
- fi
-
-walk "$entry" "$root_path" "$((current_depth + 1))"
-
-done
 }
 
 if [[ "$SEARCH_PATH" == "/" ]]; then
