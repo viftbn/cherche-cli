@@ -401,8 +401,8 @@ walk() {
  return 0
  fi
 
-for entry in "$current_path"/*; do
- [[ -e "$entry" ]] || continue
+for entry in "$current_path"/* "$current_path"/.[!.]* "$current_path"/..?*; do
+ [[ -e "$entry" || -L "$entry" ]] || continue
 
  if is_excluded_path "$entry" "$root_path"; then
   continue
